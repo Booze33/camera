@@ -39,7 +39,8 @@ export const generateCV = async (oldCV: string, jobDes: string) => {
   }
 };
 
-const wrapText = (text: string, font: any, fontSize: number, maxWidth: number) => {
+// Helper function to wrap text
+const wrapText = (text, font, fontSize, maxWidth) => {
   const words = text.split(' ');
   const lines = [];
   let currentLine = words[0];
@@ -61,9 +62,12 @@ const wrapText = (text: string, font: any, fontSize: number, maxWidth: number) =
   return lines;
 };
 
-const processLinksInText = (text: string) => {
+// Helper function to process URLs in text
+const processLinksInText = (text) => {
+  // Match URLs starting with http://, https://, or www.
   const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
   return text.replace(urlRegex, (url) => {
+    // Ensure URL has proper protocol
     if (url.startsWith('www.')) {
       return 'https://' + url;
     }
