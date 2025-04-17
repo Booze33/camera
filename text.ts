@@ -572,7 +572,7 @@ const  formatContactInfo = (contactText: string) => {
   const items = contactText.split('|').map(item => item.trim());
 
   const lines = [];
-  let currentLine = [];
+  const currentLine = [];
   
   for (const item of items) {
     currentLine.push(item);
