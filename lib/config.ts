@@ -39,7 +39,45 @@ export const generateCV = async (oldCV: string, jobDes: string) => {
   }
 };
 
-const wrapText = (text: string, font: PDFFont, fontSize: number, maxWidth: number) => {
+// Define types for resume structure
+interface ResumeHeader {
+  name: string;
+  title: string;
+  contact: string;
+}
+
+interface ResumeEntry {
+  title: string;
+  organization?: string;
+  date?: string;
+  location?: string;
+  technologies?: string;
+  description?: string[];
+  bullets?: string[];
+}
+
+interface SkillsSection {
+  categories?: Record<string, string[]>;
+  list?: string[];
+}
+
+interface SummarySection {
+  text: string;
+}
+
+interface SectionContent {
+  entries?: ResumeEntry[];
+  categories?: Record<string, string[]>;
+  list?: string[];
+  text?: string;
+}
+
+interface Resume {
+  header: ResumeHeader;
+  content: Record<string, SectionContent>;
+}
+
+const wrapText = (text: string, font: PDFFont, fontSize: number, maxWidth: number): string[] => {
   const words = text.split(' ');
   const lines = [];
   let currentLine = words[0];
@@ -61,11 +99,10 @@ const wrapText = (text: string, font: PDFFont, fontSize: number, maxWidth: numbe
   return lines;
 };
 
-
-const checkNewPage = (currentY: number, minY: number, pdfDoc: PDFDocument, currentPage: PDFPage) => {
+const checkNewPage = (currentY: number, minY: number, pdfDoc: PDFDocument, currentPage: PDFPage): { newPage: PDFPage; newY: number } => {
   if (currentY < minY) {
-    currentPage = pdfDoc.addPage([612, 792]);
-    return { newPage: currentPage, newY: currentPage.getSize().height - 60 };
+    const newPage = pdfDoc.addPage([612, 792]);
+    return { newPage: newPage, newY: newPage.getSize().height - 60 };
   }
   return { newPage: currentPage, newY: currentY };
 };
@@ -113,6 +150,7 @@ export const createPDF = async (text: string): Promise<Uint8Array> => {
       name: rgb(0.651, 0.110, 0.000),
       section: rgb(0.024, 0.553, 0.616),
       body: rgb(0, 0, 0),
+      dates: rgb(0.4, 0.4, 0.4)
     };
 
     const sectionSpacing = 20;
@@ -176,7 +214,7 @@ export const createPDF = async (text: string): Promise<Uint8Array> => {
       currentY -= lineHeight.section;
       currentY -= 8;
 
-      if (sectionName.toLowerCase().includes('summary')) {
+      if (sectionName.toLowerCase().includes('summary') && sectionContent.text) {
         const summaryLines = wrapText(sectionContent.text, font, fontSize.body, contentWidth);
         for (const line of summaryLines) {
           const pageCheck = checkNewPage(currentY, margin.bottom, pdfDoc, currentPage);
@@ -240,9 +278,6 @@ export const createPDF = async (text: string): Promise<Uint8Array> => {
             
             currentY -= itemSpacing/2;
           }
-
-          // -------DONE------
-
         } else if (sectionContent.list) {
           const skillText = sectionContent.list.join(', ');
           const skillLines = wrapText(skillText, font, fontSize.body, contentWidth);
@@ -287,7 +322,7 @@ export const createPDF = async (text: string): Promise<Uint8Array> => {
                 y: currentY,
                 size: fontSize.subsection,
                 font: boldFont,
-                color: colors.subsection,
+                color: colors.body,
               });
             }
             
@@ -343,7 +378,7 @@ export const createPDF = async (text: string): Promise<Uint8Array> => {
             }
             
             // Bullet points
-            if (entry.bullets) {
+            if (entry.bullets && entry.bullets.length > 0) {
               for (const bullet of entry.bullets) {
                 const bulletLines = wrapText(bullet, font, fontSize.body, contentWidth - 15);
                 // Draw bullet
@@ -393,7 +428,7 @@ export const createPDF = async (text: string): Promise<Uint8Array> => {
               currentPage = pageCheck.newPage;
               currentY = pageCheck.newY;
               
-              const techText = `Technologies: ${entry.technologies}`;
+              const techText = entry.technologies;
               const techLines = wrapText(techText, italicFont, fontSize.small, contentWidth);
               
               for (let line of techLines) {
@@ -422,7 +457,7 @@ export const createPDF = async (text: string): Promise<Uint8Array> => {
     const totalPages = pdfDoc.getPageCount();
     for (let i = 0; i < totalPages; i++) {
       const page = pdfDoc.getPage(i);
-      const { height } = page.getSize();
+      const { width, height } = page.getSize();
       page.drawText(`Page ${i + 1} of ${totalPages}`, {
         x: width / 2 - 30,
         y: margin.bottom / 2,
@@ -439,10 +474,10 @@ export const createPDF = async (text: string): Promise<Uint8Array> => {
   }
 };
 
-const parseResumeContent = (text: string) => {
+const parseResumeContent = (text: string): Resume => {
   const lines = text.split('\n').filter(line => line.trim().length > 0);
 
-  const resume = {
+  const resume: Resume = {
     header: {
       name: '',
       title: '',
@@ -467,16 +502,14 @@ const parseResumeContent = (text: string) => {
       resume.header.contact = contactLines.join(' | ');
 
       let currentSection = '';
-      let currentEntry = null;
+      let currentEntry: ResumeEntry | null = null;
 
       for (; i < lines.length; i++) {
         const line = lines[i].trim();
 
         if (line.toUpperCase() === line && line.length > 2 || line.endsWith(':')) {
           currentSection = line.replace(':', '').trim();
-          resume.content[currentSection] = {
-            entries: []
-          };
+          resume.content[currentSection] = {};
           currentEntry = null;
         } 
         // New entry for Experience/Education/Projects - detect by looking for " - " separator
@@ -486,10 +519,13 @@ const parseResumeContent = (text: string) => {
               currentSection.toLowerCase().includes('project')) {
             
             if (currentEntry) {
-              resume.content[currentSection].entries.push(currentEntry);
+              if (!resume.content[currentSection].entries) {
+                resume.content[currentSection].entries = [];
+              }
+              resume?.content[currentSection].entries.push(currentEntry);
             }
             
-            currentEntry = { title: '', organization: '', date:'', location: '', technologies: '', description: [], bullets: [] };
+            currentEntry = { title: '' };
 
             if (line.includes(' - ')) {
               const parts = line.split(' - ');
@@ -521,7 +557,7 @@ const parseResumeContent = (text: string) => {
               resume.content[currentSection].list.push(line);
             }
           } else if (currentSection.toLowerCase().includes('summary')) {
-            resume.content[currentSection].text = line;
+            resume.content[currentSection] = { text: line };
           }
         } 
         else if (currentEntry && line.match(/^[A-Za-z]+ [0-9]{4}|[A-Za-z]+ - [A-Za-z]+|Remote/i)) {
@@ -539,7 +575,7 @@ const parseResumeContent = (text: string) => {
             currentEntry.bullets.push(line.substring(1).trim());
           }
         }
-        else if (currentEntry && line.toLowerCase().startsWith('built with') || line.toLowerCase().startsWith('technologies')) {
+        else if (currentEntry && (line.toLowerCase().startsWith('built with') || line.toLowerCase().startsWith('technologies'))) {
           currentEntry.technologies = line;
         }
         else if (currentEntry) {
@@ -556,6 +592,8 @@ const parseResumeContent = (text: string) => {
           }
         }
       }
+      
+      // Don't forget to add the last entry
       if (currentEntry && currentSection) {
         if (!resume.content[currentSection].entries) {
           resume.content[currentSection].entries = [];
@@ -568,7 +606,7 @@ const parseResumeContent = (text: string) => {
   return resume;
 }
 
-const  formatContactInfo = (contactText: string) => {
+const formatContactInfo = (contactText: string): string[] => {
   const items = contactText.split('|').map(item => item.trim());
 
   const lines = [];
